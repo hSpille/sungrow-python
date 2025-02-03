@@ -105,15 +105,17 @@ if modbus_client_1.connect() and modbus_client_2.connect():
         # Register configurations
     registers_inverter_1 = [
         # (address, description, count, unit, data_type, scale)
-        (5016, "Total DC Power WR1", 1, 1, "U16", 1),
-        (13006, "Import From Grid WR1", 2, 1, "S32", 1),
-        (13010, "Export To Grid WR1", 2, 1, "S32", 1),
-        (13022, "Battery Level WR1", 1, 1, "U16", 10),
-        (13023, "Battery Health WR1", 1, 1, "U16", 10),
+        (5016, "WattLeistungWechselrichter1", 1, 1, "U16", 1),
+        (13006, "WattNetzExport", 2, 1, "S32", 1),
+        (13010, "WattNetzImport", 2, 1, "S32", 1),
+        (13022, "ProzentBatterieLevel", 1, 1, "U16", 10),
+        (13023, "ProzentBatterieGesundheit", 1, 1, "U16", 10),
+        (13021, "WattBatterieLeistung", 1, 1, "U16", 1),
+
     ]
 
     registers_inverter_2 = [
-        (5016, "Total DC Power WR2", 1, 1, "U16", 1),
+        (5016, "WattLeistungWechselrichter2", 1, 1, "U16", 1),
     ]
 
     try:
