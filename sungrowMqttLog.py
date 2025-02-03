@@ -17,6 +17,10 @@ MQTT_PORT = int(config['MQTT']['PORT'])
 MQTT_USER = config['MQTT']['USER']
 MQTT_PASSWORD = config['MQTT']['PASSWORD']
 MQTT_TOPIC = config['MQTT']['TOPIC']
+TLS_ENABLED = config['MQTT'].getboolean('TLS_ENABLED', fallback=False)
+CA_CERT = config['MQTT'].get('CA_CERT', None)
+CLIENT_CERT = config['MQTT'].get('CLIENT_CERT', None)
+CLIENT_KEY = config['MQTT'].get('CLIENT_KEY', None)
 
 # Inverter Configuration
 INVERTER_1_IP = config['INVERTERS']['INVERTER_1_IP']
@@ -32,6 +36,31 @@ CSV_FILE = config['LOGGING']['CSV_FILE']
 if MQTT_ENABLED:
     mqtt_client = mqtt.Client()
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
+
+    # Enable TLS if configured
+    if TLS_ENABLED:
+        mqtt_client.tls_set(
+            ca_certs=None,
+            certfile=None,
+            keyfile=None)
+        mqtt_client.tls_insecure_set(True)  # Set to True for testing with self-signed certificates
+
+    # Set MQTT callbacks
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            print("Connected to MQTT broker.")
+        else:
+            print(f"Failed to connect to MQTT broker. Error code: {rc}")
+
+    def on_disconnect(client, userdata, rc):
+        print("Disconnected from MQTT broker.")
+
+    def on_publish(client, userdata, mid):
+        print(f"Message {mid} published successfully.")
+
+    mqtt_client.on_connect = on_connect
+    mqtt_client.on_disconnect = on_disconnect
+    mqtt_client.on_publish = on_publish
 
 # Prepare CSV file if logging enabled
 if CSV_LOGGING:
@@ -68,8 +97,11 @@ def handle_data(description, value):
             "metric": description,
             "value": value
         })
-        mqtt_client.publish(MQTT_TOPIC, payload)
-        print(f"Sent to MQTT: {payload}")
+        result = mqtt_client.publish(MQTT_TOPIC, payload)
+        if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            print(f"Sent to MQTT: {payload}")
+        else:
+            print(f"Failed to send to MQTT: {payload}")
     
     # CSV Logging
     if CSV_LOGGING:
@@ -100,22 +132,21 @@ if modbus_client_1.connect() and modbus_client_2.connect():
     
     if MQTT_ENABLED:
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        print("Connected to MQTT broker.")
+        mqtt_client.loop_start()  # Start the MQTT network loop
 
-        # Register configurations
+    # Register configurations
     registers_inverter_1 = [
         # (address, description, count, unit, data_type, scale)
-        (5016, "WattLeistungWechselrichter1", 1, 1, "U16", 1),
-        (13006, "WattNetzExport", 2, 1, "S32", 1),
-        (13010, "WattNetzImport", 2, 1, "S32", 1),
-        (13022, "ProzentBatterieLevel", 1, 1, "U16", 10),
-        (13023, "ProzentBatterieGesundheit", 1, 1, "U16", 10),
-        (13021, "WattBatterieLeistung", 1, 1, "U16", 1),
-
+        (5016, "solar/inverter1/LeistungWatt", 1, 1, "U16", 1),
+        (13006, "solar/grid/exportWatt", 2, 1, "S32", 1),
+        (13010, "solar/grid/importWatt", 2, 1, "S32", 1),
+        (13022, "solar/battery/levelPercent", 1, 1, "U16", 10),
+        (13023, "solar/battery/healthPercent", 1, 1, "U16", 10),
+        (13021, "solar/battery/powerWatt", 1, 1, "U16", 1),
     ]
 
     registers_inverter_2 = [
-        (5016, "WattLeistungWechselrichter2", 1, 1, "U16", 1),
+        (5016, "solar/inverter2/LeistungWatt", 1, 1, "U16", 1),
     ]
 
     try:
@@ -133,13 +164,14 @@ if modbus_client_1.connect() and modbus_client_2.connect():
 
     except KeyboardInterrupt:
         print("Program stopped by user.")
-    
-    # Cleanup
-    modbus_client_1.close()
-    modbus_client_2.close()
-    if MQTT_ENABLED:
-        mqtt_client.disconnect()
-    print("Disconnected from all services.")
+    finally:
+        # Cleanup
+        modbus_client_1.close()
+        modbus_client_2.close()
+        if MQTT_ENABLED:
+            mqtt_client.loop_stop()  # Stop the MQTT network loop
+            mqtt_client.disconnect()
+        print("Disconnected from all services.")
 
 else:
     print("Failed to connect to one or both Modbus servers.")
