@@ -5,7 +5,7 @@ import json
 import time
 import configparser
 import csv
-from datetime import datetime
+import datetime
 from pathlib import Path
 import ssl
 
@@ -44,7 +44,7 @@ if CSV_LOGGING:
             writer = csv.writer(file)
             writer.writerow(["timestamp", "metric", "value"])
 
-#mqtt function
+#mqtt function async (steffen)
 async def send_to_mqtt(payload: str):
     async with aiomqtt.Client(
         MQTT_BROKER,
@@ -73,8 +73,8 @@ def process_register_value(registers, data_type, scale=1):
     return value / scale
 
 async def handle_data(description, value):
-    timestamp = datetime.now().astimezone().isoformat(timespec='microseconds')
-    
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
     if MQTT_ENABLED:
         payload = json.dumps({
             "timestamp": timestamp,  # Now properly formatted
