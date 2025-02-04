@@ -4,7 +4,9 @@ import json
 import time
 import configparser
 import csv
+from datetime import datetime
 from pathlib import Path
+
 
 # Read configuration file
 config = configparser.ConfigParser()
@@ -17,6 +19,12 @@ MQTT_PORT = int(config['MQTT']['PORT'])
 MQTT_USER = config['MQTT']['USER']
 MQTT_PASSWORD = config['MQTT']['PASSWORD']
 MQTT_TOPIC = config['MQTT']['TOPIC']
+MQTT_CLIENT_ID = config['MQTT'].get('CLIENT_ID', '')
+TLS_ENABLED = config['MQTT'].getboolean('TLS_ENABLED', fallback=False)
+CA_CERT = config['MQTT'].get('CA_CERT', None)
+CLIENT_CERT = config['MQTT'].get('CLIENT_CERT', None)
+CLIENT_KEY = config['MQTT'].get('CLIENT_KEY', None)
+
 
 # Inverter Configuration
 INVERTER_1_IP = config['INVERTERS']['INVERTER_1_IP']
@@ -30,8 +38,14 @@ CSV_FILE = config['LOGGING']['CSV_FILE']
 
 # Initialize MQTT Client if enabled
 if MQTT_ENABLED:
-    mqtt_client = mqtt.Client()
+    mqtt_client = mqtt.Client(client_id=MQTT_CLIENT_ID or None)
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
+    if TLS_ENABLED:
+        mqtt_client.tls_set(
+            ca_certs=None,
+            certfile=None,
+            keyfile=None)
+        mqtt_client.tls_insecure_set(True)
 
 # Prepare CSV file if logging enabled
 if CSV_LOGGING:
@@ -58,27 +72,26 @@ def process_register_value(registers, data_type, scale=1):
     return value / scale
 
 def handle_data(description, value):
-    """Handle processed data according to configuration."""
-    timestamp = int(time.time())
+    timestamp = datetime.now().astimezone().isoformat(timespec='microseconds')
     
-    # MQTT Publishing
     if MQTT_ENABLED:
         payload = json.dumps({
-            "timestamp": timestamp,
+            "timestamp": timestamp,  # Now properly formatted
             "metric": description,
             "value": value
         })
-        mqtt_client.publish(MQTT_TOPIC, payload)
-        print(f"Sent to MQTT: {payload}")
+        result = mqtt_client.publish(MQTT_TOPIC, payload)
+        if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            print(f"Sent to MQTT: {payload}")
+        else:
+            print(f"Failed to send to MQTT: {payload}")
     
-    # CSV Logging
     if CSV_LOGGING:
         with open(CSV_FILE, mode='a', newline='') as file:
             writer = csv.writer(file)
             writer.writerow([timestamp, description, value])
 
 def read_and_process_register(client, address, description, count=1, unit=1, data_type="U16", scale=1):
-    """Read and process a single register."""
     response = client.read_input_registers(address=address, count=count, unit=unit)
     if response.isError():
         print(f"Error reading {description} (Register {address}): {response}")
@@ -91,7 +104,7 @@ def read_and_process_register(client, address, description, count=1, unit=1, dat
     except ValueError as e:
         print(f"Error processing {description} (Register {address}): {e}")
 
-# Initialize Modbus clients
+
 modbus_client_1 = ModbusTcpClient(INVERTER_1_IP, port=INVERTER_1_PORT)
 modbus_client_2 = ModbusTcpClient(INVERTER_2_IP, port=INVERTER_2_PORT)
 
@@ -105,17 +118,19 @@ if modbus_client_1.connect() and modbus_client_2.connect():
         # Register configurations
     registers_inverter_1 = [
         # (address, description, count, unit, data_type, scale)
-        (5016, "WattLeistungWechselrichter1", 1, 1, "U16", 1),
-        (13006, "WattNetzExport", 2, 1, "S32", 1),
-        (13010, "WattNetzImport", 2, 1, "S32", 1),
-        (13022, "ProzentBatterieLevel", 1, 1, "U16", 10),
-        (13023, "ProzentBatterieGesundheit", 1, 1, "U16", 10),
-        (13021, "WattBatterieLeistung", 1, 1, "U16", 1),
+        (5016, "solar/inverter1/powerWatt", 1, 1, "U16", 1),
+        #(13006, "solar/grid/exportWatt", 2, 1, "S32", 1),
+        #(13010, "solar/grid/importWatt", 2, 1, "S32", 1),
+        (13022, "solar/battery/levelPercent", 1, 1, "U16", 10),
+        (13023, "solar/battery/healthPercent", 1, 1, "U16", 10),
+        (13021, "solar/battery/powerWatt", 1, 1, "U16", 1),
+        #(13034, "solar/grid/usedPower", 2, 1, "S32", 1),
+
 
     ]
 
     registers_inverter_2 = [
-        (5016, "WattLeistungWechselrichter2", 1, 1, "U16", 1),
+        (5016, "solar/inverter2/powerWatt", 1, 1, "U16", 1),
     ]
 
     try:
