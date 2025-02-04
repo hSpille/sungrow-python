@@ -2,6 +2,6 @@ pymodbus~=2.5.3
 SungrowModbusTcpClient>=0.1.5
 SungrowModbusWebClient>=0.3.2
 PyYAML~=6.0
-paho-mqtt~=2.0
 requests~=2.0
 SungrowClient>=0.1.0
+aiomqtt~=2.3.0

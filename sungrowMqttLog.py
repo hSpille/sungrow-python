@@ -1,12 +1,13 @@
 from pymodbus.client.sync import ModbusTcpClient
-import paho.mqtt.client as mqtt
+import aiomqtt
+import asyncio
 import json
 import time
 import configparser
 import csv
 from datetime import datetime
 from pathlib import Path
-
+import ssl
 
 # Read configuration file
 config = configparser.ConfigParser()
@@ -34,35 +35,6 @@ INVERTER_2_PORT = int(config['INVERTERS']['INVERTER_2_PORT'])
 CSV_LOGGING = config['LOGGING'].getboolean('CSV_LOGGING')
 CSV_FILE = config['LOGGING']['CSV_FILE']
 
-# Initialize MQTT Client if enabled
-if MQTT_ENABLED:
-    mqtt_client = mqtt.Client(client_id=MQTT_CLIENT_ID or None)
-    mqtt_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
-
-    # Enable TLS if configured
-    if TLS_ENABLED:
-        mqtt_client.tls_set(
-            ca_certs=None,
-            certfile=None,
-            keyfile=None)
-        mqtt_client.tls_insecure_set(True)  # Set to True for testing with self-signed certificates
-
-    # Set MQTT callbacks
-    def on_connect(client, userdata, flags, rc):
-        if rc == 0:
-            print("Connected to MQTT broker.")
-        else:
-            print(f"Failed to connect to MQTT broker. Error code: {rc}")
-
-    def on_disconnect(client, userdata, rc):
-        print("Disconnected from MQTT broker.")
-
-    def on_publish(client, userdata, mid):
-        print(f"Message {mid} published successfully.")
-
-    mqtt_client.on_connect = on_connect
-    mqtt_client.on_disconnect = on_disconnect
-    mqtt_client.on_publish = on_publish
 
 # Prepare CSV file if logging enabled
 if CSV_LOGGING:
@@ -71,6 +43,18 @@ if CSV_LOGGING:
         with open(csv_file, mode='w', newline='') as file:
             writer = csv.writer(file)
             writer.writerow(["timestamp", "metric", "value"])
+
+#mqtt function
+async def send_to_mqtt(payload: str):
+    async with aiomqtt.Client(
+        MQTT_BROKER,
+        MQTT_PORT,
+        username=MQTT_USER,
+        password=MQTT_PASSWORD,
+        tls_context=ssl.create_default_context(),
+    ) as mqttClient:
+        await mqttClient.publish(MQTT_TOPIC, payload)
+
 
 def process_register_value(registers, data_type, scale=1):
     """Process Modbus register values based on data type and scaling."""
@@ -88,7 +72,7 @@ def process_register_value(registers, data_type, scale=1):
         raise ValueError(f"Unsupported data type: {data_type}")
     return value / scale
 
-def handle_data(description, value):
+async def handle_data(description, value):
     timestamp = datetime.now().astimezone().isoformat(timespec='microseconds')
     
     if MQTT_ENABLED:
@@ -97,18 +81,14 @@ def handle_data(description, value):
             "metric": description,
             "value": value
         })
-        result = mqtt_client.publish(MQTT_TOPIC, payload)
-        if result.rc == mqtt.MQTT_ERR_SUCCESS:
-            print(f"Sent to MQTT: {payload}")
-        else:
-            print(f"Failed to send to MQTT: {payload}")
-    
+        await send_to_mqtt(payload)
+        print(f"Sent to MQTT: {payload}")        
     if CSV_LOGGING:
         with open(CSV_FILE, mode='a', newline='') as file:
             writer = csv.writer(file)
             writer.writerow([timestamp, description, value])
 
-def read_and_process_register(client, address, description, count=1, unit=1, data_type="U16", scale=1):
+async def read_and_process_register(client, address, description, count=1, unit=1, data_type="U16", scale=1):
     response = client.read_input_registers(address=address, count=count, unit=unit)
     if response.isError():
         print(f"Error reading {description} (Register {address}): {response}")
@@ -117,60 +97,57 @@ def read_and_process_register(client, address, description, count=1, unit=1, dat
     try:
         value = process_register_value(response.registers, data_type, scale)
         print(f"{description} (Register {address}): {value}")
-        handle_data(description, value)
+        await handle_data(description, value)
     except ValueError as e:
         print(f"Error processing {description} (Register {address}): {e}")
 
+async def main():
+    modbus_client_1 = ModbusTcpClient(INVERTER_1_IP, port=INVERTER_1_PORT)
+    modbus_client_2 = ModbusTcpClient(INVERTER_2_IP, port=INVERTER_2_PORT)
 
-modbus_client_1 = ModbusTcpClient(INVERTER_1_IP, port=INVERTER_1_PORT)
-modbus_client_2 = ModbusTcpClient(INVERTER_2_IP, port=INVERTER_2_PORT)
+    if modbus_client_1.connect() and modbus_client_2.connect():
+        print("Connected to both Modbus servers.")
 
-if modbus_client_1.connect() and modbus_client_2.connect():
-    print("Connected to both Modbus servers.")
-    
-    if MQTT_ENABLED:
-        mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        mqtt_client.loop_start()  # Start the MQTT network loop
+        # Register configurations
+        registers_inverter_1 = [
+            # (address, description, count, unit, data_type, scale)
+            (5016, "solar/inverter1/powerWatt", 1, 1, "U16", 1),
+            #(13006, "solar/grid/exportWatt", 2, 1, "S32", 1),
+            #(13010, "solar/grid/importWatt", 2, 1, "S32", 1),
+            (13022, "solar/battery/levelPercent", 1, 1, "U16", 10),
+            (13023, "solar/battery/healthPercent", 1, 1, "U16", 10),
+            #(13021, "solar/battery/powerWatt", 1, 1, "U16", 1),
+            #(13034, "solar/grid/usedPower", 2, 1, "S32", 1),
+        ]
 
-    # Register configurations
-    registers_inverter_1 = [
-        # (address, description, count, unit, data_type, scale)
-        (5016, "solar/inverter1/powerWatt", 1, 1, "U16", 1),
-        #(13006, "solar/grid/exportWatt", 2, 1, "S32", 1),
-        #(13010, "solar/grid/importWatt", 2, 1, "S32", 1),
-        (13022, "solar/battery/levelPercent", 1, 1, "U16", 10),
-        (13023, "solar/battery/healthPercent", 1, 1, "U16", 10),
-        (13021, "solar/battery/powerWatt", 1, 1, "U16", 1),
-        #(13034, "solar/grid/usedPower", 2, 1, "S32", 1),
-    ]
+        registers_inverter_2 = [
+            (5016, "solar/inverter2/powerWatt", 1, 1, "U16", 1),
+        ]
 
-    registers_inverter_2 = [
-        (5016, "solar/inverter2/LeistungWatt", 1, 1, "U16", 1),
-    ]
+        try:
+            while True:
+                # Process Inverter 1 registers
+                for params in registers_inverter_1:
+                    await read_and_process_register(modbus_client_1, *params)
+                
+                # Process Inverter 2 DC Power only
+                for params in registers_inverter_2:
+                    await read_and_process_register(modbus_client_2, *params)
+                
+                print("Waiting 60 seconds...")
+                time.sleep(60)
 
-    try:
-        while True:
-            # Process Inverter 1 registers
-            for params in registers_inverter_1:
-                read_and_process_register(modbus_client_1, *params)
-            
-            # Process Inverter 2 DC Power only
-            for params in registers_inverter_2:
-                read_and_process_register(modbus_client_2, *params)
-            
-            print("Waiting 60 seconds...")
-            time.sleep(60)
+        except KeyboardInterrupt:
+            print("Program stopped by user.")
+        finally:
+            # Cleanup
+            modbus_client_1.close()
+            modbus_client_2.close()
+            print("Disconnected from all services.")
 
-    except KeyboardInterrupt:
-        print("Program stopped by user.")
-    finally:
-        # Cleanup
-        modbus_client_1.close()
-        modbus_client_2.close()
-        if MQTT_ENABLED:
-            mqtt_client.loop_stop()  # Stop the MQTT network loop
-            mqtt_client.disconnect()
-        print("Disconnected from all services.")
+    else:
+        print("Failed to connect to one or both Modbus servers.")
 
-else:
-    print("Failed to connect to one or both Modbus servers.")
+
+if __name__ == "__main__":
+    asyncio.run(main())
