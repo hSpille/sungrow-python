@@ -65,9 +65,9 @@ def process_register_value(registers, data_type, scale=1):
     elif data_type == "U32":
         value = (registers[0] << 16) | registers[1]
     elif data_type == "S32":
-        value = (registers[0] << 16) | registers[1]
-        if value > 0x7FFFFFFF:
-            value -= 0x100000000
+        value = registers[0]
+        #if value > 0x7FFFFFFF:
+        #    value -= 0x100000000
     else:
         raise ValueError(f"Unsupported data type: {data_type}")
     return value / scale
@@ -117,7 +117,7 @@ async def main():
             (13022, "solar/battery/levelPercent", 1, 1, "U16", 10),
             (13023, "solar/battery/healthPercent", 1, 1, "U16", 10),
             #(13021, "solar/battery/powerWatt", 1, 1, "U16", 1),
-            #(13034, "solar/grid/usedPower", 2, 1, "S32", 1),
+            (13033, "solar/grid/usedPower", 2, 1, "S32", 1),
         ]
 
         registers_inverter_2 = [

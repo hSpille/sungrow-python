@@ -10,23 +10,23 @@ def read_and_print_register(client, address, description, count=1, unit=1):
     if response.isError():
         print(f"Fehler beim Auslesen des Registers {address}: {response}")
     else:
-        print(f"{description} (Register {address}): {response.registers}")
+        print(f"{description} (Register {address+1}): {response.registers}")
 
 client = ModbusTcpClient('192.168.178.171', port=502)
 if client.connect():
     # Example: addresses that might be holding registers, offset by -1 if doc is 1-based
     registers = [
-        (5015, "Total DC Power"),  # or 5016 if doc states offset is 0
-        (13006, "Confirmed: Import From Grid: "),
-        (13008, "Export To Grid?"),
-        (13022, "Battery Power"),
-        (13023, "Battery Percent"),
+        (13022, "Battery Power 1W U16"),
+        (13024, "Battery Health Percent"),
+        (13023, "Battery Level Percent 0.1%"),
+        (13034, "Active Power S32 W"),
+        (13018, "Total direct Energy Consumption U32"),
     ]
     
     for address, description in registers:
         read_and_print_register(
             client, 
-            address=address, 
+            address=address-1, 
             description=description, 
             count=2,      # try 2 if the doc says it’s a 32-bit value
             unit=1        # check your device's slave ID
