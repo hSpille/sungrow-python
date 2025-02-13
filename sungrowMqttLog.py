@@ -45,7 +45,7 @@ if CSV_LOGGING:
             writer.writerow(["timestamp", "metric", "value"])
 
 #mqtt function async (steffen)
-async def send_to_mqtt(payload: str):
+async def send_to_mqtt(payload: str, metric):
     async with aiomqtt.Client(
         MQTT_BROKER,
         MQTT_PORT,
@@ -53,7 +53,7 @@ async def send_to_mqtt(payload: str):
         password=MQTT_PASSWORD,
         tls_context=ssl.create_default_context(),
     ) as mqttClient:
-        await mqttClient.publish(MQTT_TOPIC, payload)
+        await mqttClient.publish((MQTT_TOPIC + metric), payload)
 
 
 def process_register_value(registers, data_type, scale=1):
@@ -86,7 +86,7 @@ async def handle_data(description, value):
             "metric": description,
             "value": value
         })
-        await send_to_mqtt(payload)
+        await send_to_mqtt(payload, description)
         print(f"Sent to MQTT: {payload}")        
     if CSV_LOGGING:
         with open(CSV_FILE, mode='a', newline='') as file:
