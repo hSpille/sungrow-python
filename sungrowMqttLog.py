@@ -66,12 +66,12 @@ def process_register_value(registers, data_type, scale=1):
         value = (registers[0] << 16) | registers[1]
     elif data_type == "13034":
         value = registers[0]
-        if value > 60000:
+        if value > 50000:
             value = 0
     elif data_type == "13010":
         #Export or import to Grid. Dirty fix
         value = registers[0]
-        if value > 60000:
+        if value > 50000:
             value = (65535 - value) * -1
     else:
         raise ValueError(f"Unsupported data type: {data_type}")
