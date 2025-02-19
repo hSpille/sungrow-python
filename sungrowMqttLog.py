@@ -83,7 +83,7 @@ async def handle_data(description, value):
     if MQTT_ENABLED:
         payload = json.dumps({
             "timestamp": timestamp,  # Now properly formatted
-            "metric": description,
+            "metric": "henning_demo/" + description,
             "value": value
         })
         await send_to_mqtt(payload, description)
